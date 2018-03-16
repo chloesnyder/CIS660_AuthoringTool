@@ -13,12 +13,16 @@ import sys
 
 if sys.version_info[0] > 2:
     import tkinter
+    import ttk
+
 else:
     import Tkinter as tkinter
+    import ttk
 
 import numpy
 from PIL import Image, ImageTk
 from math import sqrt, acos, floor
+
 
 # vec3 utils
 
@@ -261,12 +265,21 @@ if len(sys.argv) != 2:
     sys.exit(1)
 
 root = tkinter.Tk()
+root.title("CIS 660 Authoring Tool")
 
 im = Image.open(sys.argv[1])
 
 if im.mode != "RGB":
     im = im.convert("RGB")
 
-PaintCanvas(root, im).pack()
+nb = ttk.Notebook(root)
+page1 = tkinter.Frame(nb)
+page2 = tkinter.Frame(nb)
+nb.add(page1, text='Paint')
+nb.add(page2, text='orig image')
+nb.pack(expand=1, fill="both")
+
+PaintCanvas(page1, im).pack()
+PaintCanvas(page2, im).pack()
 
 root.mainloop()

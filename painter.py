@@ -42,6 +42,9 @@ def intensity(a):
     b = [float(a[0]) / 255.0, float(a[1]) / 255.0, float(a[2]) / 255.0]
     return dot(b, [0.2126, 0.7152, 0.0722])
 
+def clamp(a, v0, v1):
+    return max(v0, min(v1, a))
+
 # Widget
 
 class PaintCanvas(tkinter.Canvas):
@@ -51,13 +54,12 @@ class PaintCanvas(tkinter.Canvas):
 
         # get initial data
         self.imageData = numpy.array(im.convert('RGB'))
-        print(self.imageData)
         self.heightData = numpy.zeros((len(self.imageData[0]), len(self.imageData)))
 
         for y in range(0, len(self.imageData)):
             for x in range(0, len(self.imageData[0])):
                 self.heightData[y][x] = intensity(self.imageData[y][x])
-                # print(self.heightData[y][x])
+
 
         self.deltaX = 1.0 / len(self.imageData[0])
         self.deltaY = 1.0 / len(self.imageData)
@@ -80,31 +82,24 @@ class PaintCanvas(tkinter.Canvas):
     def paint(self, event):
         xy = event.x - 10, event.y - 10, event.x + 10, event.y + 10
         im = self.image.crop(xy)
-
-        #print(im)
+        im2 = numpy.array(im)
+        print(im2)
         # process the image in some fashion
         norsnippet = numpy.zeros((20, 20, 3))
         for y in range(0, 20):
             for x in range (0, 20):
                 cx = (xy[0] + x) * self.deltaX
                 cy = (xy[1] + y) * self.deltaY
+                cx = clamp(cx, 0.0, 1.0 - self.deltaX)
+                cy = clamp(cy, 0.0, 1.0 - self.deltaY)
                 ix = (xy[0] + x)
                 iy = (xy[1] + y)
-                #nor = self.sobelNormal01(cx, cy, 8.0)
-                #print(repr(ix) + ', ' + repr(iy) + ": " + repr(self.heightData[iy][ix]))
-                #norsnippet[y][x] = [int(round(nor[0] * 255.0)), int(round(nor[1] * 255.0)), int(round(nor[2] * 255.0))]
-                norsnippet[y][x] = [int(round(self.heightData[iy][ix] * 255.0)), int(0), int(0)]
-                #print(type(norsnippet[y][x]))
-                # print (repr(x) + ', ' + repr(y))
+                ix = clamp(ix, 0, len(self.imageData[0]) - 1)
+                iy = clamp(iy, 0, len(self.imageData) - 1)
+                nor = self.sobelNormal01(cx, cy, 4.0)
+                norsnippet[y][x] = [(round(nor[0] * 255.0)), (round(nor[1] * 255.0)), (round(nor[2] * 255.0))]
+                self.image.putpixel((ix, iy), (int(norsnippet[y][x][0]), int(norsnippet[y][x][1]), int(norsnippet[y][x][2])))
 
-
-        norsnippet = norsnippet.astype(int)
-        print(norsnippet)
-        im = Image.fromarray(norsnippet, 'RGB')
-        print(im)
-        #im = im.convert("L")
-
-        self.image.paste(im, xy)
         self.repair(xy)
 
     def repair(self, box):
@@ -145,6 +140,7 @@ class PaintCanvas(tkinter.Canvas):
         return ty * h1 + (1.0 - ty) * h0
 
     # given 0-1 x and y and a strength, get a normal for this slope
+    # strength determines the z component before normalization
     def sobelNormal01(self, x, y, strength):
         skx = [-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]
         sky = [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, -1.0, -2.0, -1.0]
@@ -162,11 +158,12 @@ class PaintCanvas(tkinter.Canvas):
         gz = 1.0 / strength
         nor = normalize([gx, gy, gz])
 
+        # remove this when storing regular normals, this is for drawing
         nor[0] = 0.5 + 0.5 * nor[0]
         nor[1] = 0.5 + 0.5 * nor[1]
         nor[2] = 0.5 + 0.5 * nor[2]
         return nor
-        return [int(round(nor[0] * 255.0)), int(round(nor[1] * 255.0)), int(round(nor[2] * 255.0))]
+
 
 
 #

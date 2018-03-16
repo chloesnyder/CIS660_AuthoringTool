@@ -16,16 +16,51 @@ if sys.version_info[0] > 2:
 else:
     import Tkinter as tkinter
 
+import numpy
 from PIL import Image, ImageTk
+from math import sqrt, acos
 
-#
-# painter widget
+# vec3 utils
 
+def vecLength(a):
+    return sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2])
+
+def normalize(a):
+    length = a[0] * a[0] + a[1] * a[1] + a[2] * a[2]
+    if length < 0.00001: return [0.0, 0.0, 0.0]  # replace?
+    length = sqrt(length)
+    return [a[0] / length, a[1] / length, a[2] / length]
+
+def cross(a, b):
+    res = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    return res
+
+def dot(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+def intensity(a):
+    b = [float(a[0]) / 255.0, float(a[1]) / 255.0, float(a[2]) / 255.0]
+    return dot(b, [0.2126, 0.7152, 0.0722])
+
+# Widget
 
 class PaintCanvas(tkinter.Canvas):
     def __init__(self, master, image):
         tkinter.Canvas.__init__(self, master,
                                 width=image.size[0], height=image.size[1])
+
+        # get initial data
+        self.imageData = numpy.array(im.convert('RGB'))
+        print(self.imageData)
+        self.heightData = numpy.zeros((len(self.imageData[0]), len(self.imageData)))
+
+        for y in range(0, len(self.imageData)):
+            for x in range(0, len(self.imageData[0])):
+                self.heightData[y][x] = intensity(self.imageData[y][x])
+                # print(self.heightData[y][x])
+
+        self.deltaX = 1.0 / len(self.imageData[0])
+        self.deltaY = 1.0 / len(self.imageData)
 
         # fill the canvas
         self.tile = {}
@@ -46,8 +81,28 @@ class PaintCanvas(tkinter.Canvas):
         xy = event.x - 10, event.y - 10, event.x + 10, event.y + 10
         im = self.image.crop(xy)
 
+        #print(im)
         # process the image in some fashion
-        im = im.convert("L")
+        norsnippet = numpy.zeros((20, 20, 3))
+        for y in range(0, 20):
+            for x in range (0, 20):
+                cx = (xy[0] + x) * self.deltaX
+                cy = (xy[1] + y) * self.deltaY
+                ix = (xy[0] + x)
+                iy = (xy[1] + y)
+                #nor = self.sobelNormal01(cx, cy, 8.0)
+                #print(repr(ix) + ', ' + repr(iy) + ": " + repr(self.heightData[iy][ix]))
+                #norsnippet[y][x] = [int(round(nor[0] * 255.0)), int(round(nor[1] * 255.0)), int(round(nor[2] * 255.0))]
+                norsnippet[y][x] = [int(round(self.heightData[iy][ix] * 255.0)), int(0), int(0)]
+                #print(type(norsnippet[y][x]))
+                # print (repr(x) + ', ' + repr(y))
+
+
+        norsnippet = norsnippet.astype(int)
+        print(norsnippet)
+        im = Image.fromarray(norsnippet, 'RGB')
+        print(im)
+        #im = im.convert("L")
 
         self.image.paste(im, xy)
         self.repair(xy)
@@ -64,6 +119,55 @@ class PaintCanvas(tkinter.Canvas):
                 except KeyError:
                     pass  # outside the image
         self.update_idletasks()
+
+
+    def heightSample(self, x, y):
+        x = max(0, min(len(self.heightData[0]) - 1, x))
+        y = max(0, min(len(self.heightData) - 1, y))
+        return self.heightData[y][x]
+
+
+    def bilinearSample(self, x, y):
+        fx0 = int(x * 255.0)
+        fy0 = int(y * 255.0)
+        fx1 = fx0 + 1
+        fy1 = fy0 + 1
+        h00 = self.heightSample(fx0, fy0);
+        h01 = self.heightSample(fx1, fy0);
+        h10 = self.heightSample(fx0, fy1);
+        h11 = self.heightSample(fx1, fy1);
+        # return h11
+        # print(x)
+        tx = x * 255.0 - float(fx0)
+        ty = y * 255.0 - float(fy0)
+        h0 = tx * h01 + (1.0 - tx) * h00
+        h1 = tx * h11 + (1.0 - tx) * h10
+        return ty * h1 + (1.0 - ty) * h0
+
+    # given 0-1 x and y and a strength, get a normal for this slope
+    def sobelNormal01(self, x, y, strength):
+        skx = [-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]
+        sky = [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, -1.0, -2.0, -1.0]
+
+        gx = 0.0
+        gy = 0.0
+
+        k = 0
+        for oy in range(-1, 2):
+            for ox in range(-1, 2):
+                height = self.bilinearSample(x - ox * self.deltaX, y - oy * self.deltaY)
+                gx += skx[k] * height
+                gy += sky[k] * height
+                k = k + 1
+        gz = 1.0 / strength
+        nor = normalize([gx, gy, gz])
+
+        nor[0] = 0.5 + 0.5 * nor[0]
+        nor[1] = 0.5 + 0.5 * nor[1]
+        nor[2] = 0.5 + 0.5 * nor[2]
+        return nor
+        return [int(round(nor[0] * 255.0)), int(round(nor[1] * 255.0)), int(round(nor[2] * 255.0))]
+
 
 #
 # main

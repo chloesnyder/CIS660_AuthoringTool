@@ -18,7 +18,7 @@ else:
 
 import numpy
 from PIL import Image, ImageTk
-from math import sqrt, acos
+from math import sqrt, acos, floor
 
 # vec3 utils
 
@@ -45,6 +45,10 @@ def intensity(a):
 def clamp(a, v0, v1):
     return max(v0, min(v1, a))
 
+
+def pxToFloat(a):
+    return [float(a[0]) / 255.0, float(a[1]) / 255.0, float(a[2]) / 255.0]
+
 # Widget
 
 class PaintCanvas(tkinter.Canvas):
@@ -62,6 +66,9 @@ class PaintCanvas(tkinter.Canvas):
         self.deltaX = 1.0 / len(self.imageData[0])
         self.deltaY = 1.0 / len(self.imageData)
 
+        self.maxPx = len(self.imageData[0]) - 1
+        self.maxPy = len(self.imageData) - 1
+
         for y in range(0, len(self.imageData)):
             for x in range(0, len(self.imageData[0])):
                 self.heightData[y][x] = intensity(self.imageData[y][x])
@@ -69,7 +76,7 @@ class PaintCanvas(tkinter.Canvas):
         for y in range(0, len(self.imageData)):
             for x in range(0, len(self.imageData[0])):
                 self.slopes[y][x] = self.sobelNormaln11(x * self.deltaX, y * self.deltaY, self.heightIntensity)
-                # print(self.slopes[y][x])
+
 
         # fill the canvas
         self.tile = {}
@@ -86,25 +93,24 @@ class PaintCanvas(tkinter.Canvas):
 
         self.bind("<B1-Motion>", self.paint)
 
+    def droplet(self, x, y):
+        dropPos = [x, y]
+        for i in range(0, 200):
+            if (dropPos[0] < 0.0 or dropPos[0] >= 1.0 or dropPos[1] < 0.0 or dropPos[1] >= 1.0): return
+            slope = self.bilinearSlopeSample(dropPos[0], dropPos[1])
+            slope[1] *= -1.0
+            self.bilinearTint(dropPos[0], dropPos[1])
+            dropPos[0] += slope[0] * self.deltaX
+            dropPos[1] += slope[1] * self.deltaY
+            # print(dropPos)
+
+
+        return 0
+
     def paint(self, event):
         xy = event.x - 10, event.y - 10, event.x + 10, event.y + 10
 
-        # process the image in some fashion
-        norsnippet = numpy.zeros((20, 20, 3))
-        for y in range(0, 20):
-            for x in range (0, 20):
-                cx = (xy[0] + x) * self.deltaX
-                cy = (xy[1] + y) * self.deltaY
-                cx = clamp(cx, 0.0, 1.0 - self.deltaX)
-                cy = clamp(cy, 0.0, 1.0 - self.deltaY)
-                ix = (xy[0] + x)
-                iy = (xy[1] + y)
-                ix = clamp(ix, 0, len(self.imageData[0]) - 1)
-                iy = clamp(iy, 0, len(self.imageData) - 1)
-                nor = self.sobelNormal01(cx, cy, self.heightIntensity)
-                norsnippet[y][x] = [(round(nor[0] * 255.0)), (round(nor[1] * 255.0)), (round(nor[2] * 255.0))]
-                self.image.putpixel((ix, iy), (int(norsnippet[y][x][0]), int(norsnippet[y][x][1]), int(norsnippet[y][x][2])))
-
+        self.droplet(event.x * self.deltaX, event.y * self.deltaY)
         self.repair(xy)
 
 
@@ -123,24 +129,80 @@ class PaintCanvas(tkinter.Canvas):
 
 
     def heightSample(self, x, y):
-        x = max(0, min(len(self.heightData[0]) - 1, x))
-        y = max(0, min(len(self.heightData) - 1, y))
+        x = max(0, min(self.maxPx, x))
+        y = max(0, min(self.maxPy, y))
         return self.heightData[y][x]
 
 
+    def slopeSample(self, x, y):
+        x = max(0, min(self.maxPx, x))
+        y = max(0, min(self.maxPy, y))
+        return self.slopes[y][x]
+
+
+    def bilinearTint(self, x, y):
+        # self.image.putpixel((ix, iy), (int(norsnippet[y][x][0]), int(norsnippet[y][x][1]), int(norsnippet[y][x][2])))
+        fx0 = clamp(int(x * len(self.heightData[0])), 0, self.maxPx)
+        fy0 = clamp(int(y * len(self.heightData)), 0, self.maxPy)
+        fx1 = min(fx0 + 1, self.maxPx)
+        fy1 = min(fy0 + 1, self.maxPy)
+        tx = x * float(len(self.slopes[0]))
+        ty = y * float(len(self.slopes))
+        ty -= floor(ty)
+        tx -= floor(tx)
+
+        p00 = pxToFloat(self.image.getpixel((fx0, fy0)))
+        p10 = pxToFloat(self.image.getpixel((fx0, fy1)))
+        p11 = pxToFloat(self.image.getpixel((fx1, fy1)))
+        p01 = pxToFloat(self.image.getpixel((fx1, fy0)))
+
+        # tint red
+        p00[1] *= (1.0 - tx) * (1.0 - ty)
+        p00[2] *= (1.0 - tx) * (1.0 - ty)
+        p01[1] *= (tx) * (1.0 - ty)
+        p01[2] *= (tx) * (1.0 - ty)
+        p10[1] *= (1.0 - tx) * (ty)
+        p10[2] *= (1.0 - tx) * (ty)
+        p11[1] *= (tx) * (ty)
+        p11[2] *= (tx) * (ty)
+
+        self.image.putpixel((fx0, fy0), (int(p00[0] * 255.0), int(p00[1] * 255.0), int(p00[2] * 255.0)))
+        self.image.putpixel((fx1, fy0), (int(p01[0] * 255.0), int(p01[1] * 255.0), int(p01[2] * 255.0)))
+        self.image.putpixel((fx0, fy1), (int(p10[0] * 255.0), int(p10[1] * 255.0), int(p10[2] * 255.0)))
+        self.image.putpixel((fx1, fy1), (int(p11[0] * 255.0), int(p11[1] * 255.0), int(p11[2] * 255.0)))
+
+
     def bilinearSample(self, x, y):
-        fx0 = int(x * 255.0)
-        fy0 = int(y * 255.0)
-        fx1 = fx0 + 1
-        fy1 = fy0 + 1
-        h00 = self.heightSample(fx0, fy0);
-        h01 = self.heightSample(fx1, fy0);
-        h10 = self.heightSample(fx0, fy1);
-        h11 = self.heightSample(fx1, fy1);
-        # return h11
-        # print(x)
-        tx = x * 255.0 - float(fx0)
-        ty = y * 255.0 - float(fy0)
+        fx0 = clamp(int(x * len(self.heightData[0])), 0, self.maxPx)
+        fy0 = clamp(int(y * len(self.heightData)), 0, self.maxPy)
+        fx1 = min(fx0 + 1, self.maxPx)
+        fy1 = min(fy0 + 1, self.maxPy)
+        h00 = self.heightSample(fx0, fy0)
+        h01 = self.heightSample(fx1, fy0)
+        h10 = self.heightSample(fx0, fy1)
+        h11 = self.heightSample(fx1, fy1)
+
+        tx = x * len(self.heightData[0]) - float(fx0)
+        ty = y * len(self.heightData) - float(fy0)
+        h0 = tx * h01 + (1.0 - tx) * h00
+        h1 = tx * h11 + (1.0 - tx) * h10
+        return ty * h1 + (1.0 - ty) * h0
+
+    def bilinearSlopeSample(self, x, y):
+        fx0 = clamp(int(x * len(self.heightData[0])), 0, self.maxPx)
+        fy0 = clamp(int(y * len(self.heightData)), 0, self.maxPy)
+        fx1 = min(fx0 + 1, self.maxPx)
+        fy1 = min(fy0 + 1, self.maxPy)
+        h00 = self.slopeSample(fx0, fy0)
+        h01 = self.slopeSample(fx1, fy0)
+        h10 = self.slopeSample(fx0, fy1)
+        h11 = self.slopeSample(fx1, fy1)
+
+        tx = x * float(len(self.slopes[0]))
+        ty = y * float(len(self.slopes))
+        ty -= floor(ty)
+        tx -= floor(tx)
+
         h0 = tx * h01 + (1.0 - tx) * h00
         h1 = tx * h11 + (1.0 - tx) * h10
         return ty * h1 + (1.0 - ty) * h0
@@ -187,7 +249,6 @@ class PaintCanvas(tkinter.Canvas):
                 k = k + 1
         gz = 1.0 / strength
         nor = normalize([gx, gy, gz])
-        print(nor)
         return nor
 
 

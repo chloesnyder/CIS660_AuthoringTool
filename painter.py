@@ -26,8 +26,11 @@ from math import sqrt, acos, floor
 
 # vec3 utils
 
+
+
 def vecLength(a):
     return sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2])
+
 
 def normalize(a):
     length = a[0] * a[0] + a[1] * a[1] + a[2] * a[2]
@@ -35,39 +38,124 @@ def normalize(a):
     length = sqrt(length)
     return [a[0] / length, a[1] / length, a[2] / length]
 
+
 def cross(a, b):
     res = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
     return res
 
+
 def dot(a, b):
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
 
 def intensity(a):
     b = [float(a[0]) / 255.0, float(a[1]) / 255.0, float(a[2]) / 255.0]
     return dot(b, [0.2126, 0.7152, 0.0722])
 
+
 def clamp(a, v0, v1):
     return max(v0, min(v1, a))
 
 
+def mix(a, b, t):
+    t = clamp(t, 0.0, 1.0)
+    return t * b + (1.0 - t) * a
+
+
+# image processing
+
 def pxToFloat(a):
     return [float(a[0]) / 255.0, float(a[1]) / 255.0, float(a[2]) / 255.0]
+
+
+def bilinearSample(image, x, y):
+    lx = len(image[0])
+    ly = len(image)
+    fx0 = clamp(int(x * lx), 0, lx - 1)
+    fy0 = clamp(int(y * ly), 0, ly - 1)
+    fx1 = min(fx0 + 1, lx - 1)
+    fy1 = min(fy0 + 1, ly - 1)
+    h00 = image[fy0, fx0]
+    h10 = image[fy1, fx0]
+    h01 = image[fy0, fx1]
+    h11 = image[fy1, fx1]
+
+    tx = x * float(lx)
+    ty = y * float(ly)
+    ty -= floor(ty)
+    tx -= floor(tx)
+
+    h0 = mix(h00, h01, tx)
+    h1 = mix(h10, h11, tx)
+    return mix(h0, h1, ty)
+
+
+# data processing
+def sobelNormal(heightMap, x, y, strength):
+    deltaX = 1.0 / len(heightMap[0])
+    deltaY = 1.0 / len(heightMap)
+
+    skx = [-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]
+    sky = [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, -1.0, -2.0, -1.0]
+
+    gx = 0.0
+    gy = 0.0
+
+    k = 0
+    for oy in range(-1, 2):
+        for ox in range(-1, 2):
+            height = bilinearSample(heightMap, x - ox * deltaX, y - oy * deltaY)
+            gx += skx[k] * height
+            gy += sky[k] * height
+            k = k + 1
+    gz = 1.0 / strength
+    nor = normalize([gx, gy, gz])
+    return nor
+
+
+# convert RGB image into grayscale float array (0, 1)
+def getHeightmap(image):
+    heightData = numpy.zeros((len(image[0]), len(image)))
+    for y in range(0, len(image)):
+        for x in range(0, len(image[0])):
+            heightData[y][x] = intensity(image[y][x])
+
+    return heightData
+
+# convert Heightmap ([0.0, 1.0]) to normals ([-1.0, +1.0] * 3)
+def getNormalMap(height, strength):
+    deltaX = 1.0 / len(height[0])
+    deltaY = 1.0 / len(height[1])
+    normalData = numpy.zeros((len(height[0]), len(height), 3))
+    for y in range(0, len(height)):
+        for x in range(0, len(height[0])):
+            normalData[y][x] = sobelNormal(height, x * deltaX, y * deltaY, strength)
+
+    return normalData
+
+
+def getNormalMapDrawable(normals):
+    normalDraw = numpy.zeros((len(normals[0]), len(normals), 3))
+    for y in range(0, len(normals)):
+        for x in range(0, len(normals[0])):
+            nor = 0.5 * (1.0 + normals[y][x])
+            normalDraw[y][x] = [int(round(nor[0] * 255.0)), int(round(nor[1] * 255.0)), int(round(nor[2] * 255.0))]
+
+    return normalDraw
 
 # Widget
 
 class PaintCanvas(tkinter.Canvas):
-    def __init__(self, master, image, mode):
-        tkinter.Canvas.__init__(self, master,
-                                width=image.size[0], height=image.size[1])
+    def __init__(self, master, image, mode, height, slope):
+        tkinter.Canvas.__init__(self, master, width=image.size[0], height=image.size[1])
         mode = int(mode)
 
         self.heightIntensity = 4.0
 
         # get initial data
         self.imageData = numpy.array(im.convert('RGB'))
-        self.heightData = numpy.zeros((len(self.imageData[0]), len(self.imageData)))
-        self.slopes = numpy.zeros((len(self.imageData[0]), len(self.imageData), 3))
-        self.remappedSlopes = numpy.zeros((len(self.imageData[0]), len(self.imageData), 3))
+        self.heightData = height
+        self.slopes = slope
 
         self.deltaX = 1.0 / len(self.imageData[0])
         self.deltaY = 1.0 / len(self.imageData)
@@ -75,66 +163,47 @@ class PaintCanvas(tkinter.Canvas):
         self.maxPx = len(self.imageData[0]) - 1
         self.maxPy = len(self.imageData) - 1
 
-        for y in range(0, len(self.imageData)):
-            for x in range(0, len(self.imageData[0])):
-                self.heightData[y][x] = intensity(self.imageData[y][x])
-
-        for y in range(0, len(self.imageData)):
-            for x in range(0, len(self.imageData[0])):
-                self.slopes[y][x] = self.sobelNormaln11(x * self.deltaX, y * self.deltaY, self.heightIntensity)
-                self.remappedSlopes[y][x] = (int(self.remap(self.slopes[y][x][0], 1, -1, 1, 0)),
-                                             int(self.remap(self.slopes[y][x][1], 1, -1, 1, 0)),
-                                             int(self.remap(self.slopes[y][x][2], 1, -1, 1, 0))); #remaps from [-1,1] to [0,1] * 255
+        self.tile = {}
+        self.tilesize = tilesize = 32
+        xsize, ysize = image.size
+        for x in range(0, xsize, tilesize):
+            for y in range(0, ysize, tilesize):
+                box = x, y, min(xsize, x + tilesize), min(ysize, y + tilesize)
+                tile = ImageTk.PhotoImage(image.crop(box))
+                self.create_image(x, y, image=tile, anchor=tkinter.NW)
+                self.tile[(x, y)] = box, tile
+        self.image = image
 
         if mode == 1:
-            # if mode is 1, then grayscale image
-            # fill the canvas
-            self.tile = {}
-            self.tilesize = tilesize = 32
-            xsize, ysize = image.size
-            for x in range(0, xsize, tilesize):
-                for y in range(0, ysize, tilesize):
-                    box = x, y, min(xsize, x + tilesize), min(ysize, y + tilesize)
-                    tile = ImageTk.PhotoImage(image.crop(box))
-                    self.create_image(x, y, image=tile, anchor=tkinter.NW)
-                    self.tile[(x, y)] = box, tile
-            self.image = image
+            # draw droplets mode
             self.bind("<B1-Motion>", self.paint)
-
-
-        if mode == 0:
-            # otherwise, if mode is 0, then show the normal map
-            self.tile = {}
-            self.tilesize = tilesize = 256
-            xsize, ysize = image.size
-            img2 = Image.fromarray(self.remappedSlopes.clip(0,255).astype('uint8'), 'RGB')
-            for x in range(0, xsize, tilesize):
-                for y in range(0, ysize, tilesize):
-                    box = x, y, min(xsize, x + tilesize), min(ysize, y + tilesize)
-                    tile = ImageTk.PhotoImage(img2.crop(box))
-                    self.create_image(x, y, image=tile, anchor=tkinter.NW)
-                    self.tile[(x, y)] = box, tile
-            self.image = image
-            self.bind();
+        elif mode == 0:
+            # display only
+            self.bind()
+        else:
+            # invalid
+            print("Specified invalid mode: " + repr(mode))
+            sys.exit(1)
 
 
 
     def remap(self, OldValue, OldMax, OldMin, NewMax, NewMin):
         return int(255 * (((OldValue - OldMin) * (NewMax - NewMin)) / (OldMax - OldMin)) + NewMin)
 
+
     def droplet(self, x, y):
         dropPos = [x, y]
         for i in range(0, 200):
             if (dropPos[0] < 0.0 or dropPos[0] >= 1.0 or dropPos[1] < 0.0 or dropPos[1] >= 1.0): return
-            slope = self.bilinearSlopeSample(dropPos[0], dropPos[1])
+            slope = bilinearSample(self.slopes, dropPos[0], dropPos[1])
+
             slope[1] *= -1.0
             self.bilinearTint(dropPos[0], dropPos[1])
             dropPos[0] += slope[0] * self.deltaX
             dropPos[1] += slope[1] * self.deltaY
-            # print(dropPos)
-
 
         return 0
+
 
     def paint(self, event):
         xy = event.x - 10, event.y - 10, event.x + 10, event.y + 10
@@ -157,22 +226,9 @@ class PaintCanvas(tkinter.Canvas):
         self.update_idletasks()
 
 
-    def heightSample(self, x, y):
-        x = max(0, min(self.maxPx, x))
-        y = max(0, min(self.maxPy, y))
-        return self.heightData[y][x]
-
-
-    def slopeSample(self, x, y):
-        x = max(0, min(self.maxPx, x))
-        y = max(0, min(self.maxPy, y))
-        return self.slopes[y][x]
-
-
     def bilinearTint(self, x, y):
-        # self.image.putpixel((ix, iy), (int(norsnippet[y][x][0]), int(norsnippet[y][x][1]), int(norsnippet[y][x][2])))
-        fx0 = clamp(int(x * len(self.heightData[0])), 0, self.maxPx)
-        fy0 = clamp(int(y * len(self.heightData)), 0, self.maxPy)
+        fx0 = clamp(int(x * len(self.slopes[0])), 0, self.maxPx)
+        fy0 = clamp(int(y * len(self.slopes)), 0, self.maxPy)
         fx1 = min(fx0 + 1, self.maxPx)
         fy1 = min(fy0 + 1, self.maxPy)
         tx = x * float(len(self.slopes[0]))
@@ -201,85 +257,6 @@ class PaintCanvas(tkinter.Canvas):
         self.image.putpixel((fx1, fy1), (int(p11[0] * 255.0), int(p11[1] * 255.0), int(p11[2] * 255.0)))
 
 
-    def bilinearSample(self, x, y):
-        fx0 = clamp(int(x * len(self.heightData[0])), 0, self.maxPx)
-        fy0 = clamp(int(y * len(self.heightData)), 0, self.maxPy)
-        fx1 = min(fx0 + 1, self.maxPx)
-        fy1 = min(fy0 + 1, self.maxPy)
-        h00 = self.heightSample(fx0, fy0)
-        h01 = self.heightSample(fx1, fy0)
-        h10 = self.heightSample(fx0, fy1)
-        h11 = self.heightSample(fx1, fy1)
-
-        tx = x * len(self.heightData[0]) - float(fx0)
-        ty = y * len(self.heightData) - float(fy0)
-        h0 = tx * h01 + (1.0 - tx) * h00
-        h1 = tx * h11 + (1.0 - tx) * h10
-        return ty * h1 + (1.0 - ty) * h0
-
-    def bilinearSlopeSample(self, x, y):
-        fx0 = clamp(int(x * len(self.heightData[0])), 0, self.maxPx)
-        fy0 = clamp(int(y * len(self.heightData)), 0, self.maxPy)
-        fx1 = min(fx0 + 1, self.maxPx)
-        fy1 = min(fy0 + 1, self.maxPy)
-        h00 = self.slopeSample(fx0, fy0)
-        h01 = self.slopeSample(fx1, fy0)
-        h10 = self.slopeSample(fx0, fy1)
-        h11 = self.slopeSample(fx1, fy1)
-
-        tx = x * float(len(self.slopes[0]))
-        ty = y * float(len(self.slopes))
-        ty -= floor(ty)
-        tx -= floor(tx)
-
-        h0 = tx * h01 + (1.0 - tx) * h00
-        h1 = tx * h11 + (1.0 - tx) * h10
-        return ty * h1 + (1.0 - ty) * h0
-
-
-    # given 0-1 x and y and a strength, get a normal for this slope (put between 0 and +1 for drawing)
-    # strength determines the z component before normalization, higher strength --> more horizontal
-    def sobelNormal01(self, x, y, strength):
-        skx = [-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]
-        sky = [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, -1.0, -2.0, -1.0]
-
-        gx = 0.0
-        gy = 0.0
-
-        k = 0
-        for oy in range(-1, 2):
-            for ox in range(-1, 2):
-                height = self.bilinearSample(x - ox * self.deltaX, y - oy * self.deltaY)
-                gx += skx[k] * height
-                gy += sky[k] * height
-                k = k + 1
-        gz = 1.0 / strength
-        nor = normalize([gx, gy, gz])
-
-        nor[0] = 0.5 + 0.5 * nor[0]
-        nor[1] = 0.5 + 0.5 * nor[1]
-        nor[2] = 0.5 + 0.5 * nor[2]
-        return nor
-
-    # same as above but does not restrict to positive
-    def sobelNormaln11(self, x, y, strength):
-        skx = [-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]
-        sky = [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, -1.0, -2.0, -1.0]
-
-        gx = 0.0
-        gy = 0.0
-
-        k = 0
-        for oy in range(-1, 2):
-            for ox in range(-1, 2):
-                height = self.bilinearSample(x - ox * self.deltaX, y - oy * self.deltaY)
-                gx += skx[k] * height
-                gy += sky[k] * height
-                k = k + 1
-        gz = 1.0 / strength
-        nor = normalize([gx, gy, gz])
-        return nor
-
 
 #
 # main
@@ -296,6 +273,12 @@ im = Image.open(sys.argv[1])
 if im.mode != "RGB":
     im = im.convert("RGB")
 
+# preprocess the data
+imageData = numpy.array(im.convert('RGB'))
+heightData = getHeightmap(imageData)
+normalData = getNormalMap(heightData, 8.0)
+normalDraw = (Image.fromarray(getNormalMapDrawable(normalData).astype('uint8'), 'RGB'))
+
 nb = ttk.Notebook(root)
 page1 = tkinter.Frame(nb)
 page2 = tkinter.Frame(nb)
@@ -303,7 +286,7 @@ nb.add(page1, text='Paint')
 nb.add(page2, text='orig image')
 nb.pack(expand=1, fill="both")
 
-PaintCanvas(page1, im, 1).pack() # mode 1 = paint droplets
-PaintCanvas(page2, im, 0).pack() # mode 2 = show normal map
+PaintCanvas(page1, im, 1, heightData, normalData).pack() # mode 1 = paint droplets
+PaintCanvas(page2, normalDraw, 0, heightData, normalData).pack() # mode 2 = show normal map
 
 root.mainloop()

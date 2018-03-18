@@ -13,12 +13,16 @@ import sys
 
 if sys.version_info[0] > 2:
     import tkinter
+    import ttk
+
 else:
     import Tkinter as tkinter
+    import ttk
 
 import numpy
 from PIL import Image, ImageTk
 from math import sqrt, acos, floor
+
 
 # vec3 utils
 
@@ -52,9 +56,10 @@ def pxToFloat(a):
 # Widget
 
 class PaintCanvas(tkinter.Canvas):
-    def __init__(self, master, image):
+    def __init__(self, master, image, mode):
         tkinter.Canvas.__init__(self, master,
                                 width=image.size[0], height=image.size[1])
+        mode = int(mode)
 
         self.heightIntensity = 4.0
 
@@ -62,6 +67,7 @@ class PaintCanvas(tkinter.Canvas):
         self.imageData = numpy.array(im.convert('RGB'))
         self.heightData = numpy.zeros((len(self.imageData[0]), len(self.imageData)))
         self.slopes = numpy.zeros((len(self.imageData[0]), len(self.imageData), 3))
+        self.remappedSlopes = numpy.zeros((len(self.imageData[0]), len(self.imageData), 3))
 
         self.deltaX = 1.0 / len(self.imageData[0])
         self.deltaY = 1.0 / len(self.imageData)
@@ -76,22 +82,45 @@ class PaintCanvas(tkinter.Canvas):
         for y in range(0, len(self.imageData)):
             for x in range(0, len(self.imageData[0])):
                 self.slopes[y][x] = self.sobelNormaln11(x * self.deltaX, y * self.deltaY, self.heightIntensity)
+                self.remappedSlopes[y][x] = (int(self.remap(self.slopes[y][x][0], 1, -1, 1, 0)),
+                                             int(self.remap(self.slopes[y][x][1], 1, -1, 1, 0)),
+                                             int(self.remap(self.slopes[y][x][2], 1, -1, 1, 0))); #remaps from [-1,1] to [0,1] * 255
+
+        if mode == 1:
+            # if mode is 1, then grayscale image
+            # fill the canvas
+            self.tile = {}
+            self.tilesize = tilesize = 32
+            xsize, ysize = image.size
+            for x in range(0, xsize, tilesize):
+                for y in range(0, ysize, tilesize):
+                    box = x, y, min(xsize, x + tilesize), min(ysize, y + tilesize)
+                    tile = ImageTk.PhotoImage(image.crop(box))
+                    self.create_image(x, y, image=tile, anchor=tkinter.NW)
+                    self.tile[(x, y)] = box, tile
+            self.image = image
+            self.bind("<B1-Motion>", self.paint)
 
 
-        # fill the canvas
-        self.tile = {}
-        self.tilesize = tilesize = 32
-        xsize, ysize = image.size
-        for x in range(0, xsize, tilesize):
-            for y in range(0, ysize, tilesize):
-                box = x, y, min(xsize, x+tilesize), min(ysize, y+tilesize)
-                tile = ImageTk.PhotoImage(image.crop(box))
-                self.create_image(x, y, image=tile, anchor=tkinter.NW)
-                self.tile[(x, y)] = box, tile
+        if mode == 0:
+            # otherwise, if mode is 0, then show the normal map
+            self.tile = {}
+            self.tilesize = tilesize = 256
+            xsize, ysize = image.size
+            img2 = Image.fromarray(self.remappedSlopes.clip(0,255).astype('uint8'), 'RGB')
+            for x in range(0, xsize, tilesize):
+                for y in range(0, ysize, tilesize):
+                    box = x, y, min(xsize, x + tilesize), min(ysize, y + tilesize)
+                    tile = ImageTk.PhotoImage(img2.crop(box))
+                    self.create_image(x, y, image=tile, anchor=tkinter.NW)
+                    self.tile[(x, y)] = box, tile
+            self.image = image
+            self.bind();
 
-        self.image = image
 
-        self.bind("<B1-Motion>", self.paint)
+
+    def remap(self, OldValue, OldMax, OldMin, NewMax, NewMin):
+        return int(255 * (((OldValue - OldMin) * (NewMax - NewMin)) / (OldMax - OldMin)) + NewMin)
 
     def droplet(self, x, y):
         dropPos = [x, y]
@@ -252,7 +281,6 @@ class PaintCanvas(tkinter.Canvas):
         return nor
 
 
-
 #
 # main
 
@@ -261,12 +289,21 @@ if len(sys.argv) != 2:
     sys.exit(1)
 
 root = tkinter.Tk()
+root.title("CIS 660 Authoring Tool")
 
 im = Image.open(sys.argv[1])
 
 if im.mode != "RGB":
     im = im.convert("RGB")
 
-PaintCanvas(root, im).pack()
+nb = ttk.Notebook(root)
+page1 = tkinter.Frame(nb)
+page2 = tkinter.Frame(nb)
+nb.add(page1, text='Paint')
+nb.add(page2, text='orig image')
+nb.pack(expand=1, fill="both")
+
+PaintCanvas(page1, im, 1).pack() # mode 1 = paint droplets
+PaintCanvas(page2, im, 0).pack() # mode 2 = show normal map
 
 root.mainloop()

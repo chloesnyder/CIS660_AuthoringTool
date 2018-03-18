@@ -21,7 +21,7 @@ else:
 
 import numpy
 from PIL import Image, ImageTk
-from math import sqrt, acos, floor
+from math import sqrt, acos, floor, fabs
 
 
 # vec3 utils
@@ -143,12 +143,67 @@ def getNormalMapDrawable(normals):
 
     return normalDraw
 
+
+def dataHeightChangeBrush(xy, delta, height, normals, normalDraw, strength, falloff='smooth', operation='add'):
+    deltaX = 1.0 / len(height[0])
+    deltaY = 1.0 / len(height)
+    center = (xy[0] + xy[2]) * 0.5, (xy[1] + xy[3]) * 0.5
+    centerVal = height[clamp(int(round(center[1])), 0, len(height) - 1), clamp(int(round(center[0])), 0, len(height[0]) - 1)]
+
+    # change the height map
+    for y in range(xy[1], xy[3]):
+        for x in range(xy[0], xy[2]):
+            x1 = clamp(x, 0, len(height[0]) - 1)
+            y1 = clamp(y, 0, len(height) - 1)
+
+            # get intensity based on falloff, 'else' makes square
+            k = 1.0
+            if falloff == 'sphere':
+                distX = fabs(float(x1 - center[0])) / float(xy[2] - center[0])
+                distY = fabs(float(y1 - center[1])) / float(xy[3] - center[1])
+                k = max(0.0, 1.0 - sqrt(distX * distX + distY * distY))
+            elif falloff == 'linear':
+                distX = fabs(float(x1 - center[0])) / float(xy[2] - center[0])
+                distY = fabs(float(y1 - center[1])) / float(xy[3] - center[1])
+                k = max(0.0, 1.0 - (distX * distX + distY * distY))
+            elif falloff == 'smooth':
+                distX = fabs(float(x1 - center[0])) / float(xy[2] - center[0])
+                distY = fabs(float(y1 - center[1])) / float(xy[3] - center[1])
+                k = max(0.0, 1.0 - (distX * distX + distY * distY))
+                k = k * k *(3.0 - 2.0 * k)
+
+            if operation == 'add':
+                h = height[y1][x1]
+                h = clamp(h + k * delta, 0.0, 1.0)
+                height[y1][x1] = h
+            elif operation == 'flatten':
+                h = height[y1][x1]
+                h = mix(h, centerVal, k * delta)
+                height[y1][x1] = h
+
+
+    # change the normal map
+    for y in range(xy[1], xy[3]):
+        for x in range(xy[0], xy[2]):
+            x1 = clamp(x, 0, len(height[0]) - 1)
+            y1 = clamp(y, 0, len(height) - 1)
+            nor = sobelNormal(height, x * deltaX, y * deltaY, strength)
+            normals[y1][x1] = nor
+            nor = 0.5 * (1.0 + normals[y1][x1])
+            normalDraw.putpixel((x1, y1), (int(round(nor[0] * 255.0)), int(round(nor[1] * 255.0)), int(round(nor[2] * 255.0))))
+
+
+
+
 # Widget
 
 class PaintCanvas(tkinter.Canvas):
     def __init__(self, master, image, mode, height, slope):
         tkinter.Canvas.__init__(self, master, width=image.size[0], height=image.size[1])
         mode = int(mode)
+
+        self.alt = False
+        self.shift = False
 
         self.heightIntensity = 4.0
 
@@ -179,13 +234,31 @@ class PaintCanvas(tkinter.Canvas):
             self.bind("<B1-Motion>", self.paint)
         elif mode == 0:
             # display only
-            self.bind()
+            # self.bind()
+            self.bind("<B1-Motion>", self.addHeight)
         else:
             # invalid
             print("Specified invalid mode: " + repr(mode))
             sys.exit(1)
 
+        self.bind("<Alt_L>", self.altOn)
+        self.bind("<KeyRelease-Alt_L>", self.altOff)
+        self.bind("<Shift_L>", self.shiftOn)
+        self.bind("<KeyRelease-Shift_L>", self.shiftOff)
 
+
+
+    def altOn(self, event):
+        self.alt = True
+
+    def altOff(self, event):
+        self.alt = False
+
+    def shiftOn(self, event):
+        self.shift = True
+
+    def shiftOff(self, event):
+        self.shift = False
 
     def remap(self, OldValue, OldMax, OldMin, NewMax, NewMin):
         return int(255 * (((OldValue - OldMin) * (NewMax - NewMin)) / (OldMax - OldMin)) + NewMin)
@@ -202,15 +275,18 @@ class PaintCanvas(tkinter.Canvas):
             dropPos[0] += slope[0] * self.deltaX
             dropPos[1] += slope[1] * self.deltaY
 
-        return 0
-
-
     def paint(self, event):
         xy = event.x - 10, event.y - 10, event.x + 10, event.y + 10
-
         self.droplet(event.x * self.deltaX, event.y * self.deltaY)
         self.repair(xy)
 
+    def addHeight(self, event):
+        xy = event.x - 10, event.y - 10, event.x + 10, event.y + 10
+        # dataHeightChangeBrush(xy, delta, height, normals, normalDraw, strength, falloff='sphere'):
+        strength = 0.3 if self.shift else 0.05
+        dataHeightChangeBrush(xy, strength * (-1.0 if self.alt else 1.0), self.heightData, self.slopes, self.image, 4.0,
+                              falloff='smooth', operation='flatten' if self.shift else 'add')
+        self.repair(xy)
 
     def repair(self, box):
         # update canvas
@@ -276,7 +352,7 @@ if im.mode != "RGB":
 # preprocess the data
 imageData = numpy.array(im.convert('RGB'))
 heightData = getHeightmap(imageData)
-normalData = getNormalMap(heightData, 8.0)
+normalData = getNormalMap(heightData, 4.0)
 normalDraw = (Image.fromarray(getNormalMapDrawable(normalData).astype('uint8'), 'RGB'))
 
 nb = ttk.Notebook(root)

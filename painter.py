@@ -198,6 +198,13 @@ def dataHeightChangeBrush(xy, delta, height, normals, normalDraw, strength, fall
 # Widget
 
 class PaintCanvas(tkinter.Canvas):
+
+    # static data to pass to all canvases
+    heightImg = Image.fromarray(numpy.zeros((1, 1, 3)), 'RGB')
+    heightDat = [[0.0]]
+    normalImg = Image.fromarray(numpy.array([[[127, 127, 255]]]), 'RGB')
+    normalDat = [[[0.0, 0.0, 1.0]]]
+
     def __init__(self, master, image, mode, height, slope):
         tkinter.Canvas.__init__(self, master, width=image.size[0], height=image.size[1])
         mode = int(mode)
@@ -351,9 +358,18 @@ if im.mode != "RGB":
 
 # preprocess the data
 imageData = numpy.array(im.convert('RGB'))
+heightDraw = Image.fromarray(numpy.copy(imageData).astype('uint8'), 'RGB')
 heightData = getHeightmap(imageData)
 normalData = getNormalMap(heightData, 4.0)
 normalDraw = (Image.fromarray(getNormalMapDrawable(normalData).astype('uint8'), 'RGB'))
+
+# set the shared data for all canvases
+PaintCanvas.heightDat = heightData
+PaintCanvas.heightImg = heightDraw
+PaintCanvas.normalDat = normalData
+PaintCanvas.normalImg = normalDraw
+
+print(PaintCanvas.normalImg)
 
 nb = ttk.Notebook(root)
 page1 = tkinter.Frame(nb)

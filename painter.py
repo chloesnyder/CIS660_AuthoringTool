@@ -15,13 +15,17 @@ if sys.version_info[0] > 2:
     import tkinter
     import ttk
 
+
 else:
     import Tkinter as tkinter
     import ttk
 
+
 import numpy
 from PIL import Image, ImageTk
 from math import sqrt, acos, floor, fabs
+
+
 
 
 # vec3 utils
@@ -320,12 +324,14 @@ class PaintCanvas(tkinter.Canvas):
             dropPos[1] += slope[1] * self.deltaY
 
     def paint(self, event):
-        xy = event.x - 10, event.y - 10, event.x + 10, event.y + 10
+        brush_size = brushSizeSlider.get()
+        xy = event.x - brush_size, event.y - brush_size, event.x + brush_size, event.y + brush_size
         self.droplet(event.x * self.deltaX, event.y * self.deltaY)
         self.repair(xy)
 
     def addHeight(self, event):
-        xy = event.x - 10, event.y - 10, event.x + 10, event.y + 10
+        brush_size = brushSizeSlider.get()
+        xy = event.x - brush_size, event.y - brush_size, event.x + brush_size, event.y + brush_size
         # dataHeightChangeBrush(xy, delta, height, normals, normalDraw, strength, falloff='sphere'):
         strength = 0.3 if self.shift else 0.05
         dataHeightChangeBrush(xy, strength * (-1.0 if self.alt else 1.0), self.heightData, self.slopes, self.image, 4.0,
@@ -410,8 +416,13 @@ nb.add(page2, text='Normal map')
 nb.add(page3, text='Curve map')
 nb.pack(expand=1, fill="both")
 
+brushSizeSlider = tkinter.Scale(root, from_=2, to=20, orient=tkinter.HORIZONTAL)
+brushSizeSlider.pack()
+
 PaintCanvas(page1, im, 1, heightData, normalData).pack() # mode 1 = paint droplets
 PaintCanvas(page2, normalDraw, 0, heightData, normalData).pack() # mode 2 = show normal map
 PaintCanvas(page3, curveDraw, 0, heightData, normalData).pack()
+
+
 
 root.mainloop()

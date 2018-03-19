@@ -75,10 +75,10 @@ def bilinearSample(image, x, y):
     fy0 = clamp(int(y * ly), 0, ly - 1)
     fx1 = min(fx0 + 1, lx - 1)
     fy1 = min(fy0 + 1, ly - 1)
-    h00 = image[fy0, fx0]
-    h10 = image[fy1, fx0]
-    h01 = image[fy0, fx1]
-    h11 = image[fy1, fx1]
+    h00 = image[fy0][fx0]
+    h10 = image[fy1][fx0]
+    h01 = image[fy0][fx1]
+    h11 = image[fy1][fx1]
 
     tx = x * float(lx)
     ty = y * float(ly)
@@ -184,59 +184,6 @@ def getNormalMapDrawable(normals):
     return normalDraw
 
 
-def dataHeightChangeBrush(xy, delta, height, normals, normalDraw, strength, falloff='smooth', operation='add'):
-    deltaX = 1.0 / len(height[0])
-    deltaY = 1.0 / len(height)
-    center = (xy[0] + xy[2]) * 0.5, (xy[1] + xy[3]) * 0.5
-    centerVal = height[clamp(int(round(center[1])), 0, len(height) - 1), clamp(int(round(center[0])), 0, len(height[0]) - 1)]
-
-    # change the height map
-    for y in range(xy[1], xy[3]):
-        for x in range(xy[0], xy[2]):
-            x1 = clamp(x, 0, len(height[0]) - 1)
-            y1 = clamp(y, 0, len(height) - 1)
-
-            # get intensity based on falloff, 'else' makes square
-            k = 1.0
-            if falloff == 'sphere':
-                distX = fabs(float(x1 - center[0])) / float(xy[2] - center[0])
-                distY = fabs(float(y1 - center[1])) / float(xy[3] - center[1])
-                k = max(0.0, 1.0 - sqrt(distX * distX + distY * distY))
-            elif falloff == 'linear':
-                distX = fabs(float(x1 - center[0])) / float(xy[2] - center[0])
-                distY = fabs(float(y1 - center[1])) / float(xy[3] - center[1])
-                k = max(0.0, 1.0 - (distX * distX + distY * distY))
-            elif falloff == 'smooth':
-                distX = fabs(float(x1 - center[0])) / float(xy[2] - center[0])
-                distY = fabs(float(y1 - center[1])) / float(xy[3] - center[1])
-                k = max(0.0, 1.0 - (distX * distX + distY * distY))
-                k = k * k *(3.0 - 2.0 * k)
-
-            if operation == 'add':
-                h = height[y1][x1]
-                h = clamp(h + k * delta, 0.0, 1.0)
-                height[y1][x1] = h
-            elif operation == 'flatten':
-                h = height[y1][x1]
-                h = mix(h, centerVal, k * delta)
-                height[y1][x1] = h
-
-
-    # change the normal map
-    for y in range(xy[1], xy[3]):
-        for x in range(xy[0], xy[2]):
-            x1 = clamp(x, 0, len(height[0]) - 1)
-            y1 = clamp(y, 0, len(height) - 1)
-            nor = sobelNormal(height, x * deltaX, y * deltaY, strength)
-            normals[y1][x1] = nor
-            nor = 0.5 * (1.0 + normals[y1][x1])
-            normalDraw.putpixel((x1, y1), (int(round(nor[0] * 255.0)), int(round(nor[1] * 255.0)), int(round(nor[2] * 255.0))))
-
-
-
-
-
-
 
 
 # Widget
@@ -245,11 +192,13 @@ class PaintCanvas(tkinter.Canvas):
 
     # static data to pass to all canvases
     heightImg = Image.fromarray(numpy.zeros((1, 1, 3)), 'RGB')
-    heightDat = [[0.0]]
+    heightData = numpy.array([[0.0]])
     normalImg = Image.fromarray(numpy.array([[[127, 127, 255]]]), 'RGB')
-    normalDat = [[[0.0, 0.0, 1.0]]]
+    normalData = numpy.array([[[0.0, 0.0, 1.0]]])
+    curveImg = Image.fromarray(numpy.array([[[127, 127, 127]]]), 'RGB')
+    curveData = numpy.array([[0.5]])
 
-    def __init__(self, master, image, mode, height, slope):
+    def __init__(self, master, image, mode):
         tkinter.Canvas.__init__(self, master, width=image.size[0], height=image.size[1])
         mode = int(mode)
 
@@ -260,8 +209,8 @@ class PaintCanvas(tkinter.Canvas):
 
         # get initial data
         self.imageData = numpy.array(im.convert('RGB'))
-        self.heightData = height
-        self.slopes = slope
+        # self.heightData = height
+        # self.slopes = slope
 
         self.deltaX = 1.0 / len(self.imageData[0])
         self.deltaY = 1.0 / len(self.imageData)
@@ -280,12 +229,13 @@ class PaintCanvas(tkinter.Canvas):
                 self.tile[(x, y)] = box, tile
         self.image = image
 
+        self.mode = mode
+
         if mode == 1:
             # draw droplets mode
             self.bind("<B1-Motion>", self.paint)
         elif mode == 0:
-            # display only
-            # self.bind()
+            # paint terrain mode
             self.bind("<B1-Motion>", self.addHeight)
         else:
             # invalid
@@ -296,6 +246,7 @@ class PaintCanvas(tkinter.Canvas):
         self.bind("<KeyRelease-Alt_L>", self.altOff)
         self.bind("<Shift_L>", self.shiftOn)
         self.bind("<KeyRelease-Shift_L>", self.shiftOff)
+        self.bind("<Visibility>", self.onVisibility)
 
 
 
@@ -319,7 +270,7 @@ class PaintCanvas(tkinter.Canvas):
         dropPos = [x, y]
         for i in range(0, 200):
             if (dropPos[0] < 0.0 or dropPos[0] >= 1.0 or dropPos[1] < 0.0 or dropPos[1] >= 1.0): return
-            slope = bilinearSample(self.slopes, dropPos[0], dropPos[1])
+            slope = bilinearSample(PaintCanvas.normalData, dropPos[0], dropPos[1])
 
             slope[1] *= -1.0
             self.bilinearTint(dropPos[0], dropPos[1])
@@ -335,8 +286,10 @@ class PaintCanvas(tkinter.Canvas):
         xy = event.x - 10, event.y - 10, event.x + 10, event.y + 10
         # dataHeightChangeBrush(xy, delta, height, normals, normalDraw, strength, falloff='sphere'):
         strength = 0.3 if self.shift else 0.05
-        dataHeightChangeBrush(xy, strength * (-1.0 if self.alt else 1.0), self.heightData, self.slopes, self.image, 4.0,
-                              falloff='smooth', operation='flatten' if self.shift else 'add')
+
+        self.dataHeightChangeBrush(xy, strength * (-1.0 if self.alt else 1.0),
+                                    falloff='smooth',
+                                    operation='flatten' if self.shift else 'add')
         self.repair(xy)
 
     def repair(self, box):
@@ -352,14 +305,26 @@ class PaintCanvas(tkinter.Canvas):
                     pass  # outside the image
         self.update_idletasks()
 
+    def onVisibility(self, event):
+        self.tile = {}
+        self.tilesize = tilesize = 32
+        xsize, ysize = self.image.size
+        for x in range(0, xsize, tilesize):
+            for y in range(0, ysize, tilesize):
+                box = x, y, min(xsize, x + tilesize), min(ysize, y + tilesize)
+                tile = ImageTk.PhotoImage(PaintCanvas.heightImg.crop(box)) if self.mode == 1 else ImageTk.PhotoImage(self.image.crop(box))
+                self.create_image(x, y, image=tile, anchor=tkinter.NW)
+                self.tile[(x, y)] = box, tile
+        if (self.mode == 1): self.image = PaintCanvas.heightImg.copy()
+        self.update_idletasks()
 
     def bilinearTint(self, x, y):
-        fx0 = clamp(int(x * len(self.slopes[0])), 0, self.maxPx)
-        fy0 = clamp(int(y * len(self.slopes)), 0, self.maxPy)
+        fx0 = clamp(int(x * len(PaintCanvas.heightData[0])), 0, self.maxPx)
+        fy0 = clamp(int(y * len(PaintCanvas.heightData)), 0, self.maxPy)
         fx1 = min(fx0 + 1, self.maxPx)
         fy1 = min(fy0 + 1, self.maxPy)
-        tx = x * float(len(self.slopes[0]))
-        ty = y * float(len(self.slopes))
+        tx = x * float(len(PaintCanvas.heightData[0]))
+        ty = y * float(len(PaintCanvas.heightData))
         ty -= floor(ty)
         tx -= floor(tx)
 
@@ -384,6 +349,57 @@ class PaintCanvas(tkinter.Canvas):
         self.image.putpixel((fx1, fy1), (int(p11[0] * 255.0), int(p11[1] * 255.0), int(p11[2] * 255.0)))
 
 
+    def dataHeightChangeBrush(self, xy, delta, falloff='smooth', operation='add'):
+        deltaX = 1.0 / len(PaintCanvas.heightData[0])
+        deltaY = 1.0 / len(PaintCanvas.heightData)
+        center = (xy[0] + xy[2]) * 0.5, (xy[1] + xy[3]) * 0.5
+        centerVal = PaintCanvas.heightData[clamp(int(round(center[1])), 0, len(PaintCanvas.heightData) - 1)][clamp(int(round(center[0])), 0, len(PaintCanvas.heightData[0]) - 1)]
+
+        # change the height map
+        for y in range(xy[1], xy[3]):
+            for x in range(xy[0], xy[2]):
+                x1 = clamp(x, 0, len(PaintCanvas.heightData[0]) - 1)
+                y1 = clamp(y, 0, len(PaintCanvas.heightData) - 1)
+
+                # get intensity based on falloff, 'else' makes square
+                k = 1.0
+                if falloff == 'sphere':
+                    distX = fabs(float(x1 - center[0])) / float(xy[2] - center[0])
+                    distY = fabs(float(y1 - center[1])) / float(xy[3] - center[1])
+                    k = max(0.0, 1.0 - sqrt(distX * distX + distY * distY))
+                elif falloff == 'linear':
+                    distX = fabs(float(x1 - center[0])) / float(xy[2] - center[0])
+                    distY = fabs(float(y1 - center[1])) / float(xy[3] - center[1])
+                    k = max(0.0, 1.0 - (distX * distX + distY * distY))
+                elif falloff == 'smooth':
+                    distX = fabs(float(x1 - center[0])) / float(xy[2] - center[0])
+                    distY = fabs(float(y1 - center[1])) / float(xy[3] - center[1])
+                    k = max(0.0, 1.0 - (distX * distX + distY * distY))
+                    k = k * k * (3.0 - 2.0 * k)
+
+                h = 1.0
+                if operation == 'add':
+                    h = PaintCanvas.heightData[y1][x1]
+                    h = clamp(h + k * delta, 0.0, 1.0)
+                    PaintCanvas.heightData[y1][x1] = h
+                elif operation == 'flatten':
+                    h = PaintCanvas.heightData[y1][x1]
+                    h = mix(h, centerVal, k * delta)
+                    PaintCanvas.heightData[y1][x1] = h
+
+                PaintCanvas.heightImg.putpixel((x1, y1), (int(round(h * 255.0)), int(round(h * 255.0)), int(round(h * 255.0))))
+
+        # change the normal map
+        for y in range(xy[1], xy[3]):
+            for x in range(xy[0], xy[2]):
+                x1 = clamp(x, 0, len(PaintCanvas.heightData[0]) - 1)
+                y1 = clamp(y, 0, len(PaintCanvas.heightData) - 1)
+                nor = sobelNormal(PaintCanvas.heightData, x * deltaX, y * deltaY, self.heightIntensity)
+                PaintCanvas.normalData[y1][x1] = nor
+                nor = 0.5 * (1.0 + PaintCanvas.normalData[y1][x1])
+                PaintCanvas.normalImg.putpixel((x1, y1), (
+                int(round(nor[0] * 255.0)), int(round(nor[1] * 255.0)), int(round(nor[2] * 255.0))))
+
 
 #
 # main
@@ -402,32 +418,36 @@ if im.mode != "RGB":
 
 # preprocess the data
 imageData = numpy.array(im.convert('RGB'))
-heightDraw = Image.fromarray(numpy.copy(imageData).astype('uint8'), 'RGB')
+
 heightData = getHeightmap(imageData)
+heightDraw = Image.fromarray(numpy.copy(imageData).astype('uint8'), 'RGB')
 normalData = getNormalMap(heightData, 4.0)
 normalDraw = (Image.fromarray(getNormalMapDrawable(normalData).astype('uint8'), 'RGB'))
 curveData = getCurvatureMap(heightData, 2)
 curveDraw = (Image.fromarray(getCurvatureMapDrawable(curveData).astype('uint8'), 'RGB'))
 
 # set the shared data for all canvases
-PaintCanvas.heightDat = heightData
+PaintCanvas.heightData = heightData
 PaintCanvas.heightImg = heightDraw
-PaintCanvas.normalDat = normalData
+PaintCanvas.normalData = normalData
 PaintCanvas.normalImg = normalDraw
-
-print(PaintCanvas.normalImg)
+PaintCanvas.curveData = curveData
+PaintCanvas.curveImg = curveDraw
 
 nb = ttk.Notebook(root)
 page1 = tkinter.Frame(nb)
 page2 = tkinter.Frame(nb)
 page3 = tkinter.Frame(nb)
+page4 = tkinter.Frame(nb)
 nb.add(page1, text='Droplets')
-nb.add(page2, text='Normal map')
-nb.add(page3, text='Curve map')
+nb.add(page2, text='Normal')
+nb.add(page3, text='Height')
+nb.add(page4, text='Curvature')
 nb.pack(expand=1, fill="both")
 
-PaintCanvas(page1, im, 1, heightData, normalData).pack() # mode 1 = paint droplets
-PaintCanvas(page2, normalDraw, 0, heightData, normalData).pack() # mode 2 = show normal map
-PaintCanvas(page3, curveDraw, 0, heightData, normalData).pack()
+PaintCanvas(page1, im, 1).pack() # mode 1 = paint droplets
+PaintCanvas(page2, normalDraw, 0).pack() # mode 2 = show normal map
+PaintCanvas(page3, heightDraw, 0).pack()
+PaintCanvas(page4, curveDraw, 0).pack()
 
 root.mainloop()

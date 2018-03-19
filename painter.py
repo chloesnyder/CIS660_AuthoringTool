@@ -134,6 +134,46 @@ def getNormalMap(height, strength):
     return normalData
 
 
+# convert heightmap data into curvature map
+def getCurvatureMap(heights, radius):
+    curveData = numpy.zeros((len(heights[0]), len(heights)))
+    for y in range(0, len(heights)):
+        for x in range(0, len(heights[0])):
+            for d in range(1, radius+1):
+                if(x-d < 0 or (x+d) >= len(heights[0]) or (y-d) < 0 or (y+d) >= len(heights)):
+                    pass
+                else:
+                    h = heights[y][x]
+                    hv1 = heights[y-d][x]
+                    hv2 = heights[y+d][x]
+                    hh1 = heights[y][x-d]
+                    hh2 = heights[y][x+d]
+
+                    if hv1 < hv2:
+                        vcurviness = (h - hv2) - (hv1 - h)
+                    else:
+                        vcurviness = (h - hv1) - (hv2 - h)
+
+                    if hh1 < hh2:
+                        hcurviness = (h - hh2) - (hh1 - h)
+                    else:
+                        hcurviness = (h - hh1) - (hh2 - h)
+
+
+                    curveData[y][x] = (vcurviness + hcurviness)/(d*d)
+
+    return curveData
+
+def getCurvatureMapDrawable(curves):
+    curveDraw = numpy.zeros((len(curves[0]), len(curves), 3))
+    for y in range(0, len(curves)):
+        for x in range(0, len(curves[0])):
+            cur = 0.5 * (1.0 + curves[y][x])
+            curveDraw[y][x] = [int(round(cur * 255.0))] * 3
+
+    return curveDraw
+
+
 def getNormalMapDrawable(normals):
     normalDraw = numpy.zeros((len(normals[0]), len(normals), 3))
     for y in range(0, len(normals)):
@@ -191,6 +231,10 @@ def dataHeightChangeBrush(xy, delta, height, normals, normalDraw, strength, fall
             normals[y1][x1] = nor
             nor = 0.5 * (1.0 + normals[y1][x1])
             normalDraw.putpixel((x1, y1), (int(round(nor[0] * 255.0)), int(round(nor[1] * 255.0)), int(round(nor[2] * 255.0))))
+
+
+
+
 
 
 
@@ -354,15 +398,20 @@ imageData = numpy.array(im.convert('RGB'))
 heightData = getHeightmap(imageData)
 normalData = getNormalMap(heightData, 4.0)
 normalDraw = (Image.fromarray(getNormalMapDrawable(normalData).astype('uint8'), 'RGB'))
+curveData = getCurvatureMap(heightData, 2)
+curveDraw = (Image.fromarray(getCurvatureMapDrawable(curveData).astype('uint8'), 'RGB'))
 
 nb = ttk.Notebook(root)
 page1 = tkinter.Frame(nb)
 page2 = tkinter.Frame(nb)
-nb.add(page1, text='Paint')
-nb.add(page2, text='orig image')
+page3 = tkinter.Frame(nb)
+nb.add(page1, text='Droplets')
+nb.add(page2, text='Normal map')
+nb.add(page3, text='Curve map')
 nb.pack(expand=1, fill="both")
 
 PaintCanvas(page1, im, 1, heightData, normalData).pack() # mode 1 = paint droplets
 PaintCanvas(page2, normalDraw, 0, heightData, normalData).pack() # mode 2 = show normal map
+PaintCanvas(page3, curveDraw, 0, heightData, normalData).pack()
 
 root.mainloop()

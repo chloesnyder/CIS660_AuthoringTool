@@ -416,7 +416,7 @@ nb.add(page2, text='Normal map')
 nb.add(page3, text='Curve map')
 nb.pack(expand=1, fill="both")
 
-brushSizeSlider = tkinter.Scale(root, from_=2, to=20, orient=tkinter.HORIZONTAL)
+brushSizeSlider = tkinter.Scale(root, from_=2, to=20, orient=tkinter.HORIZONTAL, label="Brush Size")
 brushSizeSlider.pack()
 
 PaintCanvas(page1, im, 1, heightData, normalData).pack() # mode 1 = paint droplets

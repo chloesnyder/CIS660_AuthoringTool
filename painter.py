@@ -358,8 +358,8 @@ normalDraw = (Image.fromarray(getNormalMapDrawable(normalData).astype('uint8'), 
 nb = ttk.Notebook(root)
 page1 = tkinter.Frame(nb)
 page2 = tkinter.Frame(nb)
-nb.add(page1, text='Paint')
-nb.add(page2, text='orig image')
+nb.add(page1, text='Droplet Paint')
+nb.add(page2, text='Normals')
 nb.pack(expand=1, fill="both")
 
 PaintCanvas(page1, im, 1, heightData, normalData).pack() # mode 1 = paint droplets

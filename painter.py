@@ -428,26 +428,29 @@ class PaintCanvas(tkinter.Canvas):
                 x1 = clamp(x, 0, len(PaintCanvas.curveData[0]) - 1)
                 y1 = clamp(y, 0, len(PaintCanvas.curveData) - 1)
                 d = 4
-                h = PaintCanvas.heightData[y1][x1]
-                hv1 = PaintCanvas.heightData[y1 - d][x1]
-                hv2 = PaintCanvas.heightData[y1 + d][x1]
-                hh1 = PaintCanvas.heightData[y1][x1 - d]
-                hh2 = PaintCanvas.heightData[y1][x1 + d]
-
-                if hv1 < hv2:
-                    vcurviness = (h - hv2) - (hv1 - h)
+                if (x - d < 0 or (x + d) >= len(PaintCanvas.heightData[0]) or (y - d) < 0 or (y + d) >= len(PaintCanvas.heightData)):
+                    pass
                 else:
-                    vcurviness = (h - hv1) - (hv2 - h)
+                    h = PaintCanvas.heightData[y1][x1]
+                    hv1 = PaintCanvas.heightData[y1 - d][x1]
+                    hv2 = PaintCanvas.heightData[y1 + d][x1]
+                    hh1 = PaintCanvas.heightData[y1][x1 - d]
+                    hh2 = PaintCanvas.heightData[y1][x1 + d]
+    
+                    if hv1 < hv2:
+                        vcurviness = (h - hv2) - (hv1 - h)
+                    else:
+                        vcurviness = (h - hv1) - (hv2 - h)
 
-                if hh1 < hh2:
-                    hcurviness = (h - hh2) - (hh1 - h)
-                else:
-                    hcurviness = (h - hh1) - (hh2 - h)
+                    if hh1 < hh2:
+                        hcurviness = (h - hh2) - (hh1 - h)
+                    else:
+                        hcurviness = (h - hh1) - (hh2 - h)
 
-                PaintCanvas.curveData[y1][x1] = (vcurviness + hcurviness) / 2.0 #(d * d)
-                cur = 0.5 * (1.0 + PaintCanvas.curveData[y1][x1])
-                PaintCanvas.curveImg.putpixel((x1, y1), (
-                int(round(cur * 255.0)), int(round(cur * 255.0)), int(round(cur * 255.0))))
+                    PaintCanvas.curveData[y1][x1] = (vcurviness + hcurviness) / 2.0 #(d * d)
+                    cur = 0.5 * (1.0 + PaintCanvas.curveData[y1][x1])
+                    PaintCanvas.curveImg.putpixel((x1, y1), (
+                    int(round(cur * 255.0)), int(round(cur * 255.0)), int(round(cur * 255.0))))
 
 
 

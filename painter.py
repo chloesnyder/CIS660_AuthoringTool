@@ -163,8 +163,7 @@ def getCurvatureMap(heights, radius):
                     else:
                         hcurviness = (h - hh1) - (hh2 - h)
 
-
-                    curveData[y][x] = (vcurviness + hcurviness)/(d*d)
+                    curveData[y][x] = (vcurviness + hcurviness)/(2.0)
 
     return curveData
 
@@ -238,9 +237,11 @@ class PaintCanvas(tkinter.Canvas):
         if mode == 1:
             # draw droplets mode
             self.bind("<B1-Motion>", self.paint)
+            self.bind("<1>", self.paint)
         elif mode == 0:
             # paint terrain mode
             self.bind("<B1-Motion>", self.addHeight)
+            self.bind("<1>", self.addHeight)
         else:
             # invalid
             print("Specified invalid mode: " + repr(mode))
@@ -250,6 +251,10 @@ class PaintCanvas(tkinter.Canvas):
         self.bind("<KeyRelease-Alt_L>", self.altOff)
         self.bind("<Shift_L>", self.shiftOn)
         self.bind("<KeyRelease-Shift_L>", self.shiftOff)
+        self.bind("<Alt_R>", self.altOn)
+        self.bind("<KeyRelease-Alt_R>", self.altOff)
+        self.bind("<Shift_R>", self.shiftOn)
+        self.bind("<KeyRelease-Shift_R>", self.shiftOff)
         self.bind("<Visibility>", self.onVisibility)
 
 
@@ -290,12 +295,12 @@ class PaintCanvas(tkinter.Canvas):
     def addHeight(self, event):
         brush_size = brushSizeSlider.get()
         xy = event.x - brush_size, event.y - brush_size, event.x + brush_size, event.y + brush_size
-        # dataHeightChangeBrush(xy, delta, height, normals, normalDraw, strength, falloff='sphere'):
-        strength = 0.3 if self.shift else 0.05
 
-        self.dataHeightChangeBrush(xy, strength * (-1.0 if self.alt else 1.0),
+        strength = 0.3 if self.shift else (-0.05 if self.alt else 0.05)
+        bmode = 'polish' if self.shift and self.alt else ('flatten' if self.shift else 'add')
+        self.dataHeightChangeBrush(xy, strength,
                                     falloff='smooth',
-                                    operation='flatten' if self.shift else 'add')
+                                    operation=bmode)
         self.repair(xy)
 
     def repair(self, box):
@@ -312,6 +317,8 @@ class PaintCanvas(tkinter.Canvas):
         self.update_idletasks()
 
     def onVisibility(self, event):
+        self.alt = False
+        self.shift = False
         self.tile = {}
         self.tilesize = tilesize = 32
         xsize, ysize = self.image.size
@@ -360,6 +367,8 @@ class PaintCanvas(tkinter.Canvas):
         deltaY = 1.0 / len(PaintCanvas.heightData)
         center = (xy[0] + xy[2]) * 0.5, (xy[1] + xy[3]) * 0.5
         centerVal = PaintCanvas.heightData[clamp(int(round(center[1])), 0, len(PaintCanvas.heightData) - 1)][clamp(int(round(center[0])), 0, len(PaintCanvas.heightData[0]) - 1)]
+        centerNor = PaintCanvas.normalData[clamp(int(round(center[1])), 0, len(PaintCanvas.heightData) - 1)][
+            clamp(int(round(center[0])), 0, len(PaintCanvas.heightData[0]) - 1)]
 
         # change the height map
         for y in range(xy[1], xy[3]):
@@ -383,15 +392,22 @@ class PaintCanvas(tkinter.Canvas):
                     k = max(0.0, 1.0 - (distX * distX + distY * distY))
                     k = k * k * (3.0 - 2.0 * k)
 
-                h = 1.0
+                h = PaintCanvas.heightData[y1][x1]
                 if operation == 'add':
-                    h = PaintCanvas.heightData[y1][x1]
                     h = clamp(h + k * delta, 0.0, 1.0)
-                    PaintCanvas.heightData[y1][x1] = h
                 elif operation == 'flatten':
-                    h = PaintCanvas.heightData[y1][x1]
                     h = mix(h, centerVal, k * delta)
-                    PaintCanvas.heightData[y1][x1] = h
+                elif operation == 'polish':
+                    h = PaintCanvas.heightData[y1][x1]
+                    c = PaintCanvas.curveData[y1][x1]
+                    c = 1.0 - clamp(-c, 0.0, 1.0)
+                    x0 = deltaX * (center[0] - x1)
+                    y0 = deltaX * (center[1] - y1)
+                    z0 = centerVal * centerNor[2] / self.heightIntensity
+                    z1 = (centerNor[0] * x0 - centerNor[1] * y0 + z0) / centerNor[2] * self.heightIntensity
+                    h = mix(h, clamp(z1, 0.0, 1.0), c * k * delta)
+
+                PaintCanvas.heightData[y1][x1] = h
 
                 PaintCanvas.heightImg.putpixel((x1, y1), (int(round(h * 255.0)), int(round(h * 255.0)), int(round(h * 255.0))))
 
@@ -411,7 +427,7 @@ class PaintCanvas(tkinter.Canvas):
             for x in range(xy[0], xy[2]):
                 x1 = clamp(x, 0, len(PaintCanvas.curveData[0]) - 1)
                 y1 = clamp(y, 0, len(PaintCanvas.curveData) - 1)
-                d = 2
+                d = 4
                 h = PaintCanvas.heightData[y1][x1]
                 hv1 = PaintCanvas.heightData[y1 - d][x1]
                 hv2 = PaintCanvas.heightData[y1 + d][x1]
@@ -428,7 +444,7 @@ class PaintCanvas(tkinter.Canvas):
                 else:
                     hcurviness = (h - hh1) - (hh2 - h)
 
-                PaintCanvas.curveData[y1][x1] = (vcurviness + hcurviness) / (d * d)
+                PaintCanvas.curveData[y1][x1] = (vcurviness + hcurviness) / 2.0 #(d * d)
                 cur = 0.5 * (1.0 + PaintCanvas.curveData[y1][x1])
                 PaintCanvas.curveImg.putpixel((x1, y1), (
                 int(round(cur * 255.0)), int(round(cur * 255.0)), int(round(cur * 255.0))))
@@ -457,7 +473,7 @@ heightData = getHeightmap(imageData)
 heightDraw = Image.fromarray(numpy.copy(imageData).astype('uint8'), 'RGB')
 normalData = getNormalMap(heightData, 4.0)
 normalDraw = (Image.fromarray(getNormalMapDrawable(normalData).astype('uint8'), 'RGB'))
-curveData = getCurvatureMap(heightData, 2)
+curveData = getCurvatureMap(heightData, 4)
 curveDraw = (Image.fromarray(getCurvatureMapDrawable(curveData).astype('uint8'), 'RGB'))
 
 # set the shared data for all canvases

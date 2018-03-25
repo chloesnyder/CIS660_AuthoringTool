@@ -25,6 +25,8 @@ import numpy
 from PIL import Image, ImageTk
 from math import sqrt, acos, floor, fabs
 
+import Tkinter, Tkconstants, tkFileDialog
+
 
 
 
@@ -457,14 +459,17 @@ class PaintCanvas(tkinter.Canvas):
 #
 # main
 
-if len(sys.argv) != 2:
-    print("Usage: painter file")
-    sys.exit(1)
+# if len(sys.argv) != 2:
+#     print("Usage: painter file")
+#     sys.exit(1)
 
 root = tkinter.Tk()
 root.title("CIS 660 Authoring Tool")
+root.filename = tkFileDialog.askopenfilename(initialdir = "./",title = "Select file",filetypes = (("png files","*.png"),("all files","*.*")))
+print (root.filename)
 
-im = Image.open(sys.argv[1])
+
+im = Image.open(root.filename)
 
 if im.mode != "RGB":
     im = im.convert("RGB")

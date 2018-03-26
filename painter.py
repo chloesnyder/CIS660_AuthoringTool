@@ -24,9 +24,11 @@ else:
 import numpy
 from PIL import Image, ImageTk
 from math import sqrt, acos, floor, fabs
-
 import Tkinter, Tkconstants, tkFileDialog
 
+from ttk import *
+
+from random import *
 
 
 
@@ -189,7 +191,20 @@ def getNormalMapDrawable(normals):
     return normalDraw
 
 
+def callback():
+    # in droplet page, pick n random cells and turn them green
+    print yearsSpinBox.get()
 
+def randomGreenPixels(num, imgdata):
+    for i in range(0, int(num)):
+        x = randint(0, len(imgdata[0]))
+        y = randint(0, len(imgdata))
+        imgdata[x][y] = [int(0) * 255, int(1) * 2550, int(0) * 255]
+        PaintCanvas.repair(page1, x, y, x + 1, y + 1)
+    print num
+    img = Image.fromarray(numpy.copy(imageData).astype('uint8'), 'RGB')
+    PaintCanvas(page1, img, 1).pack()  # mode 1 = paint droplets
+    return imgdata
 
 # Widget
 
@@ -506,7 +521,16 @@ nb.pack(expand=1, fill="both")
 brushSizeSlider = tkinter.Scale(root, from_=2, to=20, orient=tkinter.HORIZONTAL, label="Brush Size")
 brushSizeSlider.pack()
 
-PaintCanvas(page1, im, 1).pack() # mode 1 = paint droplets
+yearsSpinBox = Tkinter.Spinbox(root, from_=0, to=100)
+yearsSpinBox.pack()
+
+#simButton = Tkinter.Button(root, text = "Simulate X Years", command=callback)
+simButton = Tkinter.Button(root, text = "Simulate X Years", command=randomGreenPixels(yearsSpinBox.get(), imageData))
+simButton.pack()
+
+img = Image.fromarray(numpy.copy(imageData).astype('uint8'), 'RGB')
+
+PaintCanvas(page1, img, 1).pack() # mode 1 = paint droplets
 PaintCanvas(page2, normalDraw, 0).pack() # mode 2 = show normal map
 PaintCanvas(page3, heightDraw, 0).pack()
 PaintCanvas(page4, curveDraw, 0).pack()

@@ -202,8 +202,6 @@ def randomGreenPixels(num, imgdata):
         imgdata[x][y] = [int(0) * 255, int(1) * 2550, int(0) * 255]
         PaintCanvas.repair(page1, x, y, x + 1, y + 1)
     print num
-    img = Image.fromarray(numpy.copy(imageData).astype('uint8'), 'RGB')
-    PaintCanvas(page1, img, 1).pack()  # mode 1 = paint droplets
     return imgdata
 
 # Widget
